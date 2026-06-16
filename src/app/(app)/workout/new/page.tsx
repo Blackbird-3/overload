@@ -98,7 +98,7 @@ export default function WorkoutTrackingPage() {
                   reg.getNotifications().then(notifications => {
                     // Only show if we didn't already get the scheduled one
                     if (notifications.length === 0) {
-                      reg.showNotification("Rest Complete!", { body: "Time for your next set.", vibrate: [200, 100, 200] });
+                      reg.showNotification("Rest Complete!", { body: "Time for your next set.", vibrate: [200, 100, 200] } as any);
                     }
                   });
                 });
@@ -544,6 +544,7 @@ function ExerciseLoggerCard({
               try {
                 reg.showNotification("Rest Complete!", {
                   body: "Time for your next set.",
+                  // @ts-ignore
                   vibrate: [200, 100, 200],
                   // @ts-ignore
                   showTrigger: new (window as any).TimestampTrigger(Date.now() + 120 * 1000)
