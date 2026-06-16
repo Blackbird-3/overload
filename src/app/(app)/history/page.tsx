@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { APPWRITE_CONFIG } from "@/lib/appwrite";
 import { offlineSync } from "@/lib/offlineSync";
 import { Query } from "appwrite";
-import { Loader2, Calendar, Dumbbell, Clock, Trash2, Edit2, Check, X } from "lucide-react";
+import { Loader2, Calendar, Dumbbell, Clock, Trash2, Edit2, Check, X, Filter } from "lucide-react";
 
 function formatTime(seconds?: number) {
   if (!seconds) return null;
@@ -25,6 +25,10 @@ export default function HistoryPage() {
   const [editingSetId, setEditingSetId] = useState<string | null>(null);
   const [editWeight, setEditWeight] = useState("");
   const [editReps, setEditReps] = useState("");
+
+  // Filters State
+  const [filterRoutineId, setFilterRoutineId] = useState<string>("all");
+  const [filterMonth, setFilterMonth] = useState<string>("");
 
   const fetchHistory = async () => {
     if (!user) return;
@@ -124,11 +128,60 @@ export default function HistoryPage() {
         </button>
       </header>
 
+      {/* Filters */}
+      {!loading && workouts.length > 0 && (
+        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex-1">
+            <Filter className="h-4 w-4 text-gray-400" />
+            <select 
+              value={filterRoutineId} 
+              onChange={(e) => setFilterRoutineId(e.target.value)}
+              className="bg-transparent text-sm text-white outline-none w-full"
+            >
+              <option value="all" className="bg-gray-900">All Routines</option>
+              {routines.map(r => <option key={r.$id} value={r.$id} className="bg-gray-900">{r.name}</option>)}
+            </select>
+          </div>
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex-1">
+            <Calendar className="h-4 w-4 text-gray-400" />
+            <input 
+              type="month" 
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+              className="bg-transparent text-sm text-white outline-none w-full [color-scheme:dark]"
+            />
+          </div>
+          {(filterRoutineId !== "all" || filterMonth !== "") && (
+            <button 
+              onClick={() => { setFilterRoutineId("all"); setFilterMonth(""); }}
+              className="text-sm text-blue-400 hover:text-blue-300 px-3 py-2 whitespace-nowrap"
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
+      )}
+
       {loading && workouts.length === 0 ? (
         <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div>
       ) : (
       <div className="space-y-4">
-        {workouts.map(workout => {
+        {workouts.filter(w => {
+          let matchRoutine = true;
+          let matchMonth = true;
+
+          if (filterRoutineId !== "all") {
+            matchRoutine = w.routineId === filterRoutineId;
+          }
+
+          if (filterMonth) {
+            const workoutDate = new Date(w.$createdAt);
+            const wMonth = `${workoutDate.getFullYear()}-${(workoutDate.getMonth() + 1).toString().padStart(2, '0')}`;
+            matchMonth = wMonth === filterMonth;
+          }
+
+          return matchRoutine && matchMonth;
+        }).map(workout => {
           const workoutSets = sets.filter(s => s.workoutId === workout.$id);
           const date = new Date(workout.$createdAt).toLocaleDateString(undefined, {
             weekday: 'short', month: 'short', day: 'numeric'
@@ -233,9 +286,25 @@ export default function HistoryPage() {
           );
         })}
         
-        {workouts.length === 0 && (
+        {workouts.length === 0 && !loading && (
           <div className="text-center py-12 text-gray-500 border border-dashed border-white/10 rounded-2xl">
             No history found. Complete a workout to see it here.
+          </div>
+        )}
+        
+        {workouts.length > 0 && workouts.filter(w => {
+          let matchRoutine = true;
+          let matchMonth = true;
+          if (filterRoutineId !== "all") matchRoutine = w.routineId === filterRoutineId;
+          if (filterMonth) {
+            const workoutDate = new Date(w.$createdAt);
+            const wMonth = `${workoutDate.getFullYear()}-${(workoutDate.getMonth() + 1).toString().padStart(2, '0')}`;
+            matchMonth = wMonth === filterMonth;
+          }
+          return matchRoutine && matchMonth;
+        }).length === 0 && (
+          <div className="text-center py-12 text-gray-500 border border-dashed border-white/10 rounded-2xl">
+            No workouts match the selected filters.
           </div>
         )}
       </div>
