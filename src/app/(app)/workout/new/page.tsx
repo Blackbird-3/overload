@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { APPWRITE_CONFIG } from "@/lib/appwrite";
 import { offlineSync } from "@/lib/offlineSync";
 import { ID, Query } from "appwrite";
-import { Loader2, Plus, Dumbbell, Save, CheckCircle2, ChevronRight, Info, X, Clock, PlayCircle } from "lucide-react";
+import { Loader2, Dumbbell, CheckCircle2, ChevronRight, Info, X, Clock, Link as LinkIcon } from "lucide-react";
 import { calculateNextTarget, Suggestion, SetPerformance, ExerciseTarget } from "@/lib/overloadEngine";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -22,7 +22,7 @@ function playDing() {
     gainNode.connect(ctx.destination);
     
     osc.type = "sine";
-    osc.frequency.setValueAtTime(800, ctx.currentTime); // High pitch ding
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.5);
     
     gainNode.gain.setValueAtTime(1, ctx.currentTime);
@@ -46,14 +46,13 @@ export default function WorkoutTrackingPage() {
   const { user } = useAuth();
   const [routines, setRoutines] = useState<any[]>([]);
   const [selectedRoutine, setSelectedRoutine] = useState<any | null>(null);
-  const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
-  const [currentSet, setCurrentSet] = useState({ weight: "", reps: "" });
-  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [workoutId, setWorkoutId] = useState<string | null>(null);
+  
+  // Tracking State
   const [completedExercises, setCompletedExercises] = useState<string[]>([]);
-  const [currentSetIndex, setCurrentSetIndex] = useState(1);
+  const [activeExerciseIndices, setActiveExerciseIndices] = useState<number[]>([]);
+  
   const [workoutStartTime, setWorkoutStartTime] = useState<number | null>(null);
   const [workoutDuration, setWorkoutDuration] = useState(0);
   
@@ -61,9 +60,6 @@ export default function WorkoutTrackingPage() {
   const [restEndTime, setRestEndTime] = useState<number | null>(null);
   const [restRemaining, setRestRemaining] = useState<number | null>(null);
   const notifiedRef = useRef(false);
-  
-  // Previous drop sets display
-  const [previousDropSets, setPreviousDropSets] = useState<any[]>([]);
 
   // Duration ticking
   useEffect(() => {
@@ -94,14 +90,26 @@ export default function WorkoutTrackingPage() {
         if (!notifiedRef.current) {
           notifiedRef.current = true;
           playDing();
+          // Fallback if the scheduled notification didn't fire or wasn't supported
           if (localStorage.getItem("notifications_enabled") === "true") {
             try {
-              new Notification("Rest Complete!", { body: "Time for your next set." });
+              if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.ready.then(reg => {
+                  reg.getNotifications().then(notifications => {
+                    // Only show if we didn't already get the scheduled one
+                    if (notifications.length === 0) {
+                      reg.showNotification("Rest Complete!", { body: "Time for your next set.", vibrate: [200, 100, 200] });
+                    }
+                  });
+                });
+              } else {
+                new Notification("Rest Complete!", { body: "Time for your next set." });
+              }
             } catch (e) {}
           }
         }
       }
-    }, 500); // Check twice a second for smoothness
+    }, 500);
     
     return () => clearInterval(interval);
   }, [restEndTime]);
@@ -117,17 +125,13 @@ export default function WorkoutTrackingPage() {
         );
         setRoutines(res.documents);
         
-        // Removed automatic document creation here to prevent empty workouts
-        
-        // Check for active workout in localStorage
         const savedStateStr = localStorage.getItem(`activeWorkout_${user.$id}`);
         if (savedStateStr) {
           try {
             const savedState = JSON.parse(savedStateStr);
             setSelectedRoutine(savedState.selectedRoutine);
-            setActiveExerciseIndex(savedState.activeExerciseIndex);
-            setCurrentSetIndex(savedState.currentSetIndex);
-            setCompletedExercises(savedState.completedExercises);
+            setCompletedExercises(savedState.completedExercises || []);
+            setActiveExerciseIndices(savedState.activeExerciseIndices || [savedState.activeExerciseIndex || 0]);
             setWorkoutId(savedState.workoutId);
             setWorkoutStartTime(savedState.workoutStartTime);
           } catch (e) {
@@ -148,148 +152,39 @@ export default function WorkoutTrackingPage() {
     if (user && selectedRoutine && workoutId) {
       const workoutState = {
         selectedRoutine,
-        activeExerciseIndex,
-        currentSetIndex,
+        activeExerciseIndices,
         completedExercises,
         workoutId,
         workoutStartTime
       };
       localStorage.setItem(`activeWorkout_${user.$id}`, JSON.stringify(workoutState));
     }
-  }, [user, selectedRoutine, activeExerciseIndex, currentSetIndex, completedExercises, workoutId, workoutStartTime]);
+  }, [user, selectedRoutine, activeExerciseIndices, completedExercises, workoutId, workoutStartTime]);
 
-  // Analyze previous set when exercise or set index changes
-  useEffect(() => {
-    async function analyzePreviousPerformance() {
-      if (!user || !selectedRoutine) return;
-      const exercise = JSON.parse(selectedRoutine.exercises[activeExerciseIndex]);
-      
-      try {
-        // 1. Find the absolute most recent set to determine the last workoutId
-        const recentRes = await offlineSync.listDocuments(
-          APPWRITE_CONFIG.databaseId,
-          APPWRITE_CONFIG.setsCollectionId,
-          [
-            Query.equal("userId", user.$id),
-            Query.equal("exerciseName", exercise.name),
-            Query.orderDesc("$createdAt"),
-            Query.limit(1)
-          ]
-        );
-
-        let prevSet: SetPerformance | null = null;
-        if (recentRes.documents.length > 0) {
-          const lastWorkoutId = recentRes.documents[0].workoutId;
-          
-          // 2. Fetch all sets for this exercise from that specific past workout
-          const workoutSetsRes = await offlineSync.listDocuments(
-            APPWRITE_CONFIG.databaseId,
-            APPWRITE_CONFIG.setsCollectionId,
-            [
-              Query.equal("userId", user.$id),
-              Query.equal("workoutId", lastWorkoutId),
-              Query.equal("exerciseName", exercise.name),
-              Query.orderAsc("$createdAt")
-            ]
-          );
-
-          const sets = workoutSetsRes.documents;
-          const dropSets = sets.filter((s: any) => s.isDropSet);
-          setPreviousDropSets(dropSets);
-          
-          const normalSets = sets.filter((s: any) => !s.isDropSet);
-          
-          // Match the current set number. If they are doing more sets today than last time, fallback to the last logged set.
-          const matchedDoc = normalSets[currentSetIndex - 1] || normalSets[normalSets.length - 1];
-
-          if (matchedDoc) {
-            prevSet = {
-              weight: matchedDoc.weight,
-              reps: matchedDoc.reps,
-              targetWeight: matchedDoc.targetWeight || matchedDoc.weight,
-              targetReps: matchedDoc.targetReps || exercise.minReps,
-            };
-          }
-        } else {
-          setPreviousDropSets([]);
-        }
-
-        const targetRange: ExerciseTarget = { minReps: exercise.minReps, maxReps: exercise.maxReps };
-        const suggestion = calculateNextTarget(prevSet, targetRange);
-        
-        setSuggestion(suggestion);
-        setCurrentSet({ 
-          weight: suggestion.suggestedWeight.toString(), 
-          reps: suggestion.suggestedTargetReps.toString() 
-        });
-
-      } catch (error) {
-        console.error("Failed to fetch previous sets", error);
-      }
-    }
-    analyzePreviousPerformance();
-  }, [activeExerciseIndex, currentSetIndex, selectedRoutine, user]);
-
-  const logSet = async (isDropSet = false) => {
-    if (!user || !workoutId || !selectedRoutine || !currentSet.weight || !currentSet.reps) return;
-    setSaving(true);
-    const exercise = JSON.parse(selectedRoutine.exercises[activeExerciseIndex]);
-    const targetSets = exercise.targetSets || 3;
-    
+  const startWorkout = async (r: any) => {
+    if (!user) return;
+    setLoading(true);
     try {
-      await offlineSync.createDocument(
+      const workout = await offlineSync.createDocument(
         APPWRITE_CONFIG.databaseId,
-        APPWRITE_CONFIG.setsCollectionId,
+        APPWRITE_CONFIG.workoutsCollectionId,
         ID.unique(),
-        {
-          userId: user.$id,
-          workoutId: workoutId,
-          exerciseName: exercise.name,
-          weight: parseFloat(currentSet.weight),
-          reps: parseInt(currentSet.reps),
-          targetWeight: suggestion?.suggestedWeight || parseFloat(currentSet.weight),
-          targetReps: suggestion?.suggestedTargetReps || parseInt(currentSet.reps),
-          isDropSet
-        }
+        { userId: user.$id, date: new Date().toISOString(), routineId: r.$id }
       );
-      
-      // Only advance the main set index if it's NOT a drop set
-      if (!isDropSet) {
-        notifiedRef.current = false;
-        setRestEndTime(Date.now() + 120 * 1000);
-        setCurrentSetIndex(curr => curr + 1);
-        setCurrentSet(curr => ({ 
-          ...curr, 
-          reps: suggestion?.suggestedTargetReps.toString() || "" 
-        }));
-      } else {
-        // For drop set, we don't start a rest timer, we just clear for the next immediate set
-        setCurrentSet({ weight: "", reps: "" });
-      }
+      setWorkoutId(workout.$id);
+      setSelectedRoutine(r);
+      setWorkoutStartTime(Date.now());
+      setActiveExerciseIndices([0]);
+      setCompletedExercises([]);
     } catch (error) {
-      console.error(error);
+      console.error("Failed to start workout", error);
+      alert("Failed to start workout. Check your connection.");
     } finally {
-      setSaving(false);
-    }
-  };
-
-  const advanceExercise = () => {
-    if (!selectedRoutine) return;
-    const exercise = JSON.parse(selectedRoutine.exercises[activeExerciseIndex]);
-    setCompletedExercises([...completedExercises, exercise.name]);
-    setRestEndTime(null);
-    setRestRemaining(null);
-    
-    if (activeExerciseIndex < selectedRoutine.exercises.length - 1) {
-      setActiveExerciseIndex(curr => curr + 1);
-      setCurrentSetIndex(1);
-    } else {
-      finishWorkout();
+      setLoading(false);
     }
   };
 
   const finishWorkout = async () => {
-    // Update workout duration
     const duration = workoutStartTime ? Math.floor((Date.now() - workoutStartTime) / 1000) : 0;
     try {
       await offlineSync.updateDocument(
@@ -313,7 +208,6 @@ export default function WorkoutTrackingPage() {
   const cancelWorkout = async () => {
     if (!confirm("Are you sure you want to cancel this workout? Progress will be lost.")) return;
     try {
-      // Offline queue will handle this
       if (workoutId) {
         await offlineSync.deleteDocument(
           APPWRITE_CONFIG.databaseId,
@@ -332,28 +226,32 @@ export default function WorkoutTrackingPage() {
     window.location.href = "/dashboard";
   };
 
-  if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-500 h-8 w-8" /></div>;
-
-  const startWorkout = async (r: any) => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const workout = await offlineSync.createDocument(
-        APPWRITE_CONFIG.databaseId,
-        APPWRITE_CONFIG.workoutsCollectionId,
-        ID.unique(),
-        { userId: user.$id, date: new Date().toISOString(), routineId: r.$id }
-      );
-      setWorkoutId(workout.$id);
-      setSelectedRoutine(r);
-      setWorkoutStartTime(Date.now());
-    } catch (error) {
-      console.error("Failed to start workout", error);
-      alert("Failed to start workout. Check your connection.");
-    } finally {
-      setLoading(false);
+  const handleExerciseComplete = (indexCompleted: number) => {
+    const exercise = JSON.parse(selectedRoutine.exercises[indexCompleted]);
+    const newCompleted = [...completedExercises, exercise.name];
+    setCompletedExercises(newCompleted);
+    
+    const newActive = activeExerciseIndices.filter(i => i !== indexCompleted);
+    setRestEndTime(null);
+    setRestRemaining(null);
+    
+    if (newActive.length > 0) {
+      setActiveExerciseIndices(newActive);
+    } else {
+      const nextIndex = selectedRoutine.exercises.findIndex((eStr: string, i: number) => {
+        const e = JSON.parse(eStr);
+        return !newCompleted.includes(e.name);
+      });
+      
+      if (nextIndex !== -1) {
+        setActiveExerciseIndices([nextIndex]);
+      } else {
+        finishWorkout();
+      }
     }
   };
+
+  if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-500 h-8 w-8" /></div>;
 
   if (!selectedRoutine) {
     return (
@@ -384,22 +282,24 @@ export default function WorkoutTrackingPage() {
     );
   }
 
-  const activeExercise = JSON.parse(selectedRoutine.exercises[activeExerciseIndex]);
+  // Available exercises for supersetting (not completed and not currently active)
+  const availableForSuperset = selectedRoutine.exercises
+    .map((eStr: string, i: number) => ({ exercise: JSON.parse(eStr), index: i }))
+    .filter((e: any) => !completedExercises.includes(e.exercise.name) && !activeExerciseIndices.includes(e.index));
 
   return (
     <div className="space-y-6 text-white pb-20 relative">
       <header className="flex justify-between items-start">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <div className="text-sm text-blue-400 font-medium bg-blue-500/10 px-2 py-0.5 rounded">
-              {formatTime(workoutDuration)}
+            <div className="text-sm text-blue-400 font-medium bg-blue-500/10 px-2 py-0.5 rounded flex items-center gap-2">
+              <Clock className="h-4 w-4" /> {formatTime(workoutDuration)}
             </div>
-            <div className="text-sm text-blue-400 font-medium">
-              Exercise {activeExerciseIndex + 1} of {selectedRoutine.exercises.length}
+            <div className="text-sm text-gray-400 font-medium">
+              {completedExercises.length} / {selectedRoutine.exercises.length} Complete
             </div>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">{activeExercise.name}</h1>
-          <p className="text-gray-400">Target Range: {activeExercise.minReps}-{activeExercise.maxReps} reps</p>
+          <h1 className="text-3xl font-bold tracking-tight">Workout in Progress</h1>
         </div>
         <button 
           onClick={cancelWorkout}
@@ -434,116 +334,327 @@ export default function WorkoutTrackingPage() {
         )}
       </AnimatePresence>
 
-      {/* Auto-Suggest Engine Output */}
+      {/* Render active exercises */}
+      <div className="space-y-6">
+        {activeExerciseIndices.map(idx => (
+          <ExerciseLoggerCard
+            key={idx}
+            exerciseIndex={idx}
+            exercise={JSON.parse(selectedRoutine.exercises[idx])}
+            user={user}
+            workoutId={workoutId}
+            onExerciseComplete={handleExerciseComplete}
+            setRestEndTime={setRestEndTime}
+            notifiedRef={notifiedRef}
+          />
+        ))}
+      </div>
+
+      {/* Superset Selector */}
+      {availableForSuperset.length > 0 && (
+        <div className="mt-8 pt-6 border-t border-white/10">
+          <label className="flex items-center gap-2 text-sm font-semibold text-gray-400 mb-3">
+            <LinkIcon className="h-4 w-4" /> Superset with...
+          </label>
+          <select 
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none appearance-none"
+            onChange={(e) => {
+              if (e.target.value) {
+                setActiveExerciseIndices([...activeExerciseIndices, parseInt(e.target.value)]);
+                e.target.value = ""; // reset dropdown
+              }
+            }}
+            value=""
+          >
+            <option value="" disabled>Select an exercise to superset</option>
+            {availableForSuperset.map((item: any) => (
+              <option key={item.index} value={item.index} className="bg-gray-900">
+                {item.exercise.name} ({item.exercise.targetSets || 3} sets)
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Progress Dots */}
+      <div className="flex justify-center gap-2 mt-12">
+        {selectedRoutine.exercises.map((eStr: string, idx: number) => {
+          const e = JSON.parse(eStr);
+          const isComplete = completedExercises.includes(e.name);
+          const isActive = activeExerciseIndices.includes(idx);
+          return (
+            <div 
+              key={idx} 
+              className={`h-2 rounded-full transition-all ${isActive ? 'w-8 bg-blue-500' : isComplete ? 'w-2 bg-green-500' : 'w-2 bg-gray-600'}`}
+              title={e.name}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Sub-component to manage state for a single exercise independently
+// --------------------------------------------------------------------------
+function ExerciseLoggerCard({
+  exerciseIndex,
+  exercise,
+  user,
+  workoutId,
+  onExerciseComplete,
+  setRestEndTime,
+  notifiedRef
+}: any) {
+  const [currentSet, setCurrentSet] = useState({ weight: "", reps: "" });
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  const [currentSetIndex, setCurrentSetIndex] = useState(1);
+  const [previousDropSets, setPreviousDropSets] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  // Initialize set count from DB (in case of page refresh)
+  useEffect(() => {
+    async function initSetCount() {
+      if (!workoutId) return;
+      try {
+        const res = await offlineSync.listDocuments(
+          APPWRITE_CONFIG.databaseId,
+          APPWRITE_CONFIG.setsCollectionId,
+          [
+            Query.equal("workoutId", workoutId),
+            Query.equal("exerciseName", exercise.name),
+            Query.limit(100)
+          ]
+        );
+        const normalSets = res.documents.filter((d: any) => !d.isDropSet);
+        if (normalSets.length > 0) {
+          setCurrentSetIndex(normalSets.length + 1);
+        }
+      } catch (e) {
+        console.error("Failed to init set count", e);
+      }
+    }
+    initSetCount();
+  }, [workoutId, exercise.name]);
+
+  // Analyze previous set when exercise or set index changes
+  useEffect(() => {
+    async function analyzePreviousPerformance() {
+      if (!user) return;
+      
+      try {
+        let previousSetsHistory: SetPerformance[] = [];
+        
+        // Fetch up to 3 recent workouts for this exercise to determine weight increment trend
+        const recentRes = await offlineSync.listDocuments(
+          APPWRITE_CONFIG.databaseId,
+          APPWRITE_CONFIG.setsCollectionId,
+          [
+            Query.equal("userId", user.$id),
+            Query.equal("exerciseName", exercise.name),
+            Query.orderDesc("$createdAt"),
+            Query.limit(50) // fetch enough to group by workout
+          ]
+        );
+
+        if (recentRes.documents.length > 0) {
+          // Group sets by workoutId
+          const workoutsMap = new Map<string, any[]>();
+          recentRes.documents.forEach((d: any) => {
+             if (d.workoutId === workoutId) return; // Skip current workout
+             if (!workoutsMap.has(d.workoutId)) workoutsMap.set(d.workoutId, []);
+             workoutsMap.get(d.workoutId)!.push(d);
+          });
+          
+          // Get the last 3 unique workouts
+          const uniqueWorkoutIds = Array.from(workoutsMap.keys()).slice(0, 3);
+          // Reverse so oldest is first in the array
+          uniqueWorkoutIds.reverse().forEach(wId => {
+             const sets = workoutsMap.get(wId)!;
+             // We need to order by creation ascending to match currentSetIndex
+             sets.sort((a, b) => new Date(a.$createdAt).getTime() - new Date(b.$createdAt).getTime());
+             
+             // Find drop sets vs normal sets just for UI consistency if needed
+             if (wId === uniqueWorkoutIds[uniqueWorkoutIds.length - 1]) {
+                 setPreviousDropSets(sets.filter((s: any) => s.isDropSet));
+             }
+             
+             const normalSets = sets.filter((s: any) => !s.isDropSet);
+             const matchedDoc = normalSets[currentSetIndex - 1] || normalSets[normalSets.length - 1];
+             
+             if (matchedDoc) {
+               previousSetsHistory.push({
+                 weight: matchedDoc.weight,
+                 reps: matchedDoc.reps,
+                 targetWeight: matchedDoc.targetWeight || matchedDoc.weight,
+                 targetReps: matchedDoc.targetReps || exercise.minReps,
+               });
+             }
+          });
+        } else {
+          setPreviousDropSets([]);
+        }
+
+        const targetRange: ExerciseTarget = { minReps: exercise.minReps, maxReps: exercise.maxReps };
+        const suggestion = calculateNextTarget(previousSetsHistory, targetRange);
+        
+        setSuggestion(suggestion);
+        setCurrentSet({ 
+          weight: suggestion.suggestedWeight.toString(), 
+          reps: suggestion.suggestedTargetReps.toString() 
+        });
+
+      } catch (error) {
+        console.error("Failed to fetch previous sets", error);
+      }
+    }
+    analyzePreviousPerformance();
+  }, [currentSetIndex, exercise.name, user, workoutId]);
+
+  const logSet = async (isDropSet = false) => {
+    if (!user || !workoutId || !currentSet.weight || !currentSet.reps) return;
+    setSaving(true);
+    
+    try {
+      await offlineSync.createDocument(
+        APPWRITE_CONFIG.databaseId,
+        APPWRITE_CONFIG.setsCollectionId,
+        ID.unique(),
+        {
+          userId: user.$id,
+          workoutId: workoutId,
+          exerciseName: exercise.name,
+          weight: parseFloat(currentSet.weight),
+          reps: parseInt(currentSet.reps),
+          targetWeight: suggestion?.suggestedWeight || parseFloat(currentSet.weight),
+          targetReps: suggestion?.suggestedTargetReps || parseInt(currentSet.reps),
+          isDropSet
+        }
+      );
+      
+      if (!isDropSet) {
+        notifiedRef.current = false;
+        setRestEndTime(Date.now() + 120 * 1000); // Trigger global rest timer
+        
+        // Attempt to schedule a background notification using experimental Notification Triggers API
+        if (localStorage.getItem("notifications_enabled") === "true" && 'serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then(reg => {
+            if ('showTrigger' in Notification.prototype) {
+              try {
+                reg.showNotification("Rest Complete!", {
+                  body: "Time for your next set.",
+                  vibrate: [200, 100, 200],
+                  // @ts-ignore
+                  showTrigger: new (window as any).TimestampTrigger(Date.now() + 120 * 1000)
+                });
+              } catch(e) {}
+            }
+          });
+        }
+        setCurrentSetIndex(curr => curr + 1);
+        setCurrentSet(curr => ({ 
+          ...curr, 
+          reps: suggestion?.suggestedTargetReps.toString() || "" 
+        }));
+      } else {
+        setCurrentSet({ weight: "", reps: "" });
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md shadow-xl relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+      
+      <div className="mb-4">
+        <h2 className="text-xl font-bold tracking-tight text-white mb-1">{exercise.name}</h2>
+        <p className="text-gray-400 text-sm">Target: {exercise.minReps}-{exercise.maxReps} reps • {exercise.targetSets || 3} Sets</p>
+      </div>
+
       <AnimatePresence mode="wait">
         {suggestion && (
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-5 backdrop-blur-md"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-6 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4"
           >
-            <div className="flex items-start gap-3">
-              <Info className="h-5 w-5 text-blue-400 mt-0.5 shrink-0" />
+            <div className="flex items-start gap-2">
+              <Info className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
               <div>
-                <h3 className="font-medium text-blue-100">Smart Suggestion</h3>
-                <p className="text-sm text-blue-300/80 mt-1">{suggestion.message}</p>
-                <div className="mt-3 flex gap-4">
-                  <div className="bg-black/40 rounded-lg px-3 py-2 text-center flex-1 border border-white/5">
-                    <span className="block text-xs text-gray-400 mb-1">Target Weight</span>
-                    <span className="font-bold text-lg">{suggestion.suggestedWeight} kg</span>
-                  </div>
-                  <div className="bg-black/40 rounded-lg px-3 py-2 text-center flex-1 border border-white/5">
-                    <span className="block text-xs text-gray-400 mb-1">Target Reps</span>
-                    <span className="font-bold text-lg">{suggestion.suggestedTargetReps}</span>
-                  </div>
+                <p className="text-sm text-blue-300/80">{suggestion.message}</p>
+                <div className="mt-2 flex gap-3 text-xs">
+                  <div className="bg-black/30 rounded px-2 py-1 text-blue-200">Weight: <b>{suggestion.suggestedWeight}kg</b></div>
+                  <div className="bg-black/30 rounded px-2 py-1 text-blue-200">Reps: <b>{suggestion.suggestedTargetReps}</b></div>
                 </div>
-                
-                {previousDropSets.length > 0 && (
-                  <div className="mt-3 text-xs text-purple-300/80 bg-purple-500/10 p-2 rounded-lg border border-purple-500/20">
-                    <strong className="block text-purple-300">Last workout's drop sets:</strong>
-                    {previousDropSets.map((ds, i) => (
-                      <div key={i}>• {ds.weight}kg × {ds.reps} reps</div>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Logging Form */}
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
-        <h2 className="text-lg font-semibold mb-4">Log Set</h2>
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div>
-            <label className="block text-sm text-gray-400 mb-2">Weight (kg)</label>
-            <input
-              type="number"
-              value={currentSet.weight}
-              onChange={(e) => setCurrentSet({ ...currentSet, weight: e.target.value })}
-              className="w-full text-center text-3xl font-bold bg-black/50 border border-white/10 rounded-xl py-4 focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-2">Reps</label>
-            <input
-              type="number"
-              value={currentSet.reps}
-              onChange={(e) => setCurrentSet({ ...currentSet, reps: e.target.value })}
-              className="w-full text-center text-3xl font-bold bg-black/50 border border-white/10 rounded-xl py-4 focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-          </div>
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wider">Weight (kg)</label>
+          <input
+            type="number"
+            value={currentSet.weight}
+            onChange={(e) => setCurrentSet({ ...currentSet, weight: e.target.value })}
+            className="w-full text-center text-2xl font-bold bg-black/50 border border-white/10 rounded-xl py-3 focus:ring-2 focus:ring-blue-500 outline-none"
+          />
         </div>
-        
-        <div className="flex flex-col gap-3">
-          {currentSetIndex <= (activeExercise.targetSets || 3) ? (
-            <button
-              onClick={() => logSet(false)}
-              disabled={saving || !currentSet.weight || !currentSet.reps}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600 py-4 text-lg font-semibold hover:bg-blue-500 active:scale-95 transition-all disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="animate-spin h-6 w-6" /> : <><CheckCircle2 className="h-6 w-6" /> Complete Set {currentSetIndex}</>}
-            </button>
-          ) : (
-            <button
-              onClick={advanceExercise}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-green-600 py-4 text-lg font-semibold hover:bg-green-500 active:scale-95 transition-all"
-            >
-              Next Exercise <ChevronRight className="h-6 w-6" />
-            </button>
-          )}
-          
-          <div className="flex gap-3">
-            {currentSetIndex > (activeExercise.targetSets || 3) && (
-              <button
-                onClick={() => logSet(false)}
-                disabled={saving || !currentSet.weight || !currentSet.reps}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-blue-600/30 border border-blue-500/50 py-3 text-sm font-semibold text-blue-200 hover:bg-blue-600/40 active:scale-95 transition-all disabled:opacity-50"
-              >
-                Log Extra Set
-              </button>
-            )}
-            <button
-              onClick={() => logSet(true)}
-              disabled={saving || !currentSet.weight || !currentSet.reps}
-              className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-purple-600/30 border border-purple-500/50 py-3 text-sm font-semibold text-purple-200 hover:bg-purple-600/40 active:scale-95 transition-all disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="animate-spin h-4 w-4 text-purple-400" /> : 'Log Drop Set'}
-            </button>
-          </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wider">Reps</label>
+          <input
+            type="number"
+            value={currentSet.reps}
+            onChange={(e) => setCurrentSet({ ...currentSet, reps: e.target.value })}
+            className="w-full text-center text-2xl font-bold bg-black/50 border border-white/10 rounded-xl py-3 focus:ring-2 focus:ring-blue-500 outline-none"
+          />
         </div>
       </div>
       
-      {/* Progress Dots */}
-      <div className="flex justify-center gap-2 mt-8">
-        {selectedRoutine.exercises.map((_: string, idx: number) => (
-          <div 
-            key={idx} 
-            className={`h-2 rounded-full transition-all ${idx === activeExerciseIndex ? 'w-8 bg-blue-500' : idx < activeExerciseIndex ? 'w-2 bg-green-500' : 'w-2 bg-gray-600'}`}
-          />
-        ))}
+      <div className="flex flex-col gap-3">
+        {currentSetIndex <= (exercise.targetSets || 3) ? (
+          <button
+            onClick={() => logSet(false)}
+            disabled={saving || !currentSet.weight || !currentSet.reps}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-base font-semibold hover:bg-blue-500 active:scale-95 transition-all disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="animate-spin h-5 w-5" /> : <><CheckCircle2 className="h-5 w-5" /> Complete Set {currentSetIndex}</>}
+          </button>
+        ) : (
+          <button
+            onClick={() => onExerciseComplete(exerciseIndex)}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-green-600 py-3 text-base font-semibold hover:bg-green-500 active:scale-95 transition-all"
+          >
+            Finish Exercise <ChevronRight className="h-5 w-5" />
+          </button>
+        )}
+        
+        <div className="flex gap-3">
+          {currentSetIndex > (exercise.targetSets || 3) && (
+            <button
+              onClick={() => logSet(false)}
+              disabled={saving || !currentSet.weight || !currentSet.reps}
+              className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-blue-600/30 border border-blue-500/50 py-2.5 text-xs font-semibold text-blue-200 hover:bg-blue-600/40 active:scale-95 transition-all disabled:opacity-50"
+            >
+              Log Extra Set
+            </button>
+          )}
+          <button
+            onClick={() => logSet(true)}
+            disabled={saving || !currentSet.weight || !currentSet.reps}
+            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-purple-600/30 border border-purple-500/50 py-2.5 text-xs font-semibold text-purple-200 hover:bg-purple-600/40 active:scale-95 transition-all disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="animate-spin h-4 w-4 text-purple-400" /> : 'Log Drop Set'}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -18,15 +18,14 @@ export interface Suggestion {
 
 /**
  * Core Progressive Overload Engine
- * Suggests the next target based on the previous performance and target rep range.
+ * Suggests the next target based on historical performance and target rep range.
  */
 export function calculateNextTarget(
-  previousSet: SetPerformance | null,
+  previousSets: SetPerformance[],
   targetRange: ExerciseTarget,
-  weightIncrement: number = 2.5 // default 2.5 kg or lbs
+  fallbackWeightIncrement: number = 2.5
 ): Suggestion {
-  // If no previous set, start with a baseline (this would ideally be user input, but we default to something)
-  if (!previousSet) {
+  if (!previousSets || previousSets.length === 0) {
     return {
       suggestedWeight: 20, // default empty bar
       suggestedTargetReps: targetRange.minReps,
@@ -34,16 +33,37 @@ export function calculateNextTarget(
     };
   }
 
-  const { weight, reps } = previousSet;
+  const lastSet = previousSets[previousSets.length - 1];
+  const { weight, reps } = lastSet;
   const { minReps, maxReps } = targetRange;
+
+  // Attempt to deduce the user's preferred weight increment from their history
+  let weightIncrement = fallbackWeightIncrement;
+  if (previousSets.length >= 2) {
+    const prev2 = previousSets[previousSets.length - 2];
+    const prev1 = previousSets[previousSets.length - 1];
+    const diff = prev1.weight - prev2.weight;
+    
+    // If they successfully increased the weight previously, assume that's their equipment's increment step
+    if (diff > 0) {
+      weightIncrement = diff;
+    } else if (previousSets.length >= 3) {
+      const prev3 = previousSets[previousSets.length - 3];
+      const diff2 = prev2.weight - prev3.weight;
+      if (diff2 > 0) {
+        weightIncrement = diff2;
+      }
+    }
+  }
 
   // Case 1: Reached or exceeded the top of the rep range
   // Action: Increase weight, reset reps to bottom of range
   if (reps >= maxReps) {
     const extraReps = Math.max(0, reps - maxReps);
-    // Base increment + extra increments for every 2 extra reps
+    // Base increment + extra increments for every 2 extra reps (using deduced increment)
     const multiplier = 1 + Math.floor(extraReps / 2);
     const totalIncrement = weightIncrement * multiplier;
+    
     return {
       suggestedWeight: weight + totalIncrement,
       suggestedTargetReps: minReps,
@@ -54,8 +74,6 @@ export function calculateNextTarget(
   // Case 2: Hit minimum reps but not max reps
   // Action: Keep weight same, dynamically increase target reps based on what was hit
   if (reps >= minReps && reps < maxReps) {
-    // If they were aiming for 8 and hit 9, next target is 10.
-    // We add 1 to whatever they ACTUALLY hit, capped at maxReps.
     const newTargetReps = Math.min(maxReps, reps + 1);
     return {
       suggestedWeight: weight,

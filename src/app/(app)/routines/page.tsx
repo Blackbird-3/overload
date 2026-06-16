@@ -5,7 +5,8 @@ import { useAuth } from "@/context/AuthContext";
 import { APPWRITE_CONFIG } from "@/lib/appwrite";
 import { offlineSync } from "@/lib/offlineSync";
 import { ID, Query } from "appwrite";
-import { Plus, Dumbbell, Trash2, Loader2, Save } from "lucide-react";
+import { Plus, Dumbbell, Trash2, Loader2, Save, GripVertical, Download } from "lucide-react";
+import { BEGINNER_PRESETS } from "@/lib/presets";
 
 interface Exercise {
   name: string;
@@ -62,6 +63,50 @@ export default function RoutinesPage() {
 
   const removeExercise = (index: number) => {
     setNewExercises(newExercises.filter((_, i) => i !== index));
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.setData("text/plain", index.toString());
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // Necessary to allow dropping
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    const dragIndex = parseInt(e.dataTransfer.getData("text/plain"));
+    if (dragIndex === dropIndex) return;
+
+    const updated = [...newExercises];
+    const [draggedItem] = updated.splice(dragIndex, 1);
+    updated.splice(dropIndex, 0, draggedItem);
+    setNewExercises(updated);
+  };
+
+  const loadPreset = async (preset: { name: string, exercises: Exercise[] }) => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const exercisesJson = preset.exercises.map(e => JSON.stringify(e));
+      const res = await offlineSync.createDocument(
+        APPWRITE_CONFIG.databaseId,
+        APPWRITE_CONFIG.routinesCollectionId,
+        ID.unique(),
+        {
+          userId: user.$id,
+          name: preset.name,
+          exercises: exercisesJson,
+        }
+      );
+      // Optimistic UI update
+      setRoutines(curr => [...curr, { $id: res.$id, name: preset.name, exercises: exercisesJson }] as unknown as Routine[]);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to load preset");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const saveRoutine = async () => {
@@ -199,15 +244,23 @@ export default function RoutinesPage() {
             <div className="space-y-3 mt-4">
               <label className="block text-sm font-medium text-gray-400">Exercises & Rep Ranges</label>
               {newExercises.map((exercise, index) => (
-                <div key={index} className="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-black/30 p-3 rounded-lg border border-white/5">
+                <div 
+                  key={index} 
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragOver={handleDragOver}
+                  onDrop={(e) => handleDrop(e, index)}
+                  className="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-black/30 p-3 rounded-lg border border-white/5 cursor-move hover:border-white/20 transition-colors"
+                >
+                  <GripVertical className="h-5 w-5 text-gray-500 shrink-0" />
                   <input
                     type="text"
                     value={exercise.name}
                     onChange={(e) => updateExercise(index, "name", e.target.value)}
                     placeholder="Exercise name"
-                    className="flex-1 min-w-[150px] rounded-md border-0 bg-transparent py-1.5 px-2 text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500 sm:text-sm"
+                    className="flex-1 min-w-[150px] rounded-md border-0 bg-transparent py-1.5 px-2 text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500 sm:text-sm cursor-text"
                   />
-                  <div className="flex items-center gap-2 text-sm">
+                  <div className="flex items-center gap-2 text-sm cursor-text">
                     <input
                       type="number"
                       value={exercise.targetSets}
@@ -232,7 +285,7 @@ export default function RoutinesPage() {
                   </div>
                   <button
                     onClick={() => removeExercise(index)}
-                    className="p-2 text-gray-500 hover:text-red-500 transition-colors"
+                    className="p-2 text-gray-500 hover:text-red-500 transition-colors cursor-pointer"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -302,8 +355,30 @@ export default function RoutinesPage() {
           );
         })}
         {routines.length === 0 && !isCreating && (
-          <div className="col-span-full text-center py-12 text-gray-500 border border-dashed border-white/10 rounded-2xl">
-            No routines yet. Create one to get started!
+          <div className="col-span-full">
+            <div className="text-center py-12 text-gray-500 border border-dashed border-white/10 rounded-2xl mb-8">
+              No routines yet. Create one to get started!
+            </div>
+            
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              <Download className="h-5 w-5 text-blue-400" />
+              Load Starter Templates
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {BEGINNER_PRESETS.map((preset, i) => (
+                <button
+                  key={i}
+                  onClick={() => loadPreset(preset)}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-md hover:bg-white/10 hover:border-blue-500/50 transition-all text-left flex flex-col justify-between"
+                >
+                  <div>
+                    <h3 className="text-lg font-semibold text-blue-100 mb-2">{preset.name}</h3>
+                    <p className="text-sm text-gray-400 mb-4">{preset.exercises.map(e => e.name).join(', ')}</p>
+                  </div>
+                  <div className="text-sm font-semibold text-blue-400">Load Template &rarr;</div>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
