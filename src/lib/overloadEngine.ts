@@ -39,35 +39,22 @@ export function calculateNextTarget(
 
   // Attempt to deduce the user's preferred weight increment from their history
   let weightIncrement = fallbackWeightIncrement;
-  if (previousSets.length >= 2) {
-    const prev2 = previousSets[previousSets.length - 2];
-    const prev1 = previousSets[previousSets.length - 1];
-    const diff = prev1.weight - prev2.weight;
-    
-    // If they successfully increased the weight previously, assume that's their equipment's increment step
+  // Scan backwards to find the last time they successfully increased the weight
+  for (let i = previousSets.length - 1; i > 0; i--) {
+    const diff = previousSets[i].weight - previousSets[i - 1].weight;
     if (diff > 0) {
       weightIncrement = diff;
-    } else if (previousSets.length >= 3) {
-      const prev3 = previousSets[previousSets.length - 3];
-      const diff2 = prev2.weight - prev3.weight;
-      if (diff2 > 0) {
-        weightIncrement = diff2;
-      }
+      break;
     }
   }
 
   // Case 1: Reached or exceeded the top of the rep range
   // Action: Increase weight, reset reps to bottom of range
   if (reps >= maxReps) {
-    const extraReps = Math.max(0, reps - maxReps);
-    // Base increment + extra increments for every 2 extra reps (using deduced increment)
-    const multiplier = 1 + Math.floor(extraReps / 2);
-    const totalIncrement = weightIncrement * multiplier;
-    
     return {
-      suggestedWeight: weight + totalIncrement,
+      suggestedWeight: weight + weightIncrement,
       suggestedTargetReps: minReps,
-      message: `You hit ${reps} reps! Time to increase the weight by ${totalIncrement}.`,
+      message: `You hit ${reps} reps! Time to increase the weight by ${weightIncrement}.`,
     };
   }
 

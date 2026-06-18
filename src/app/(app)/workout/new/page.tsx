@@ -467,8 +467,8 @@ function ExerciseLoggerCard({
              workoutsMap.get(d.workoutId)!.push(d);
           });
           
-          // Get the last 3 unique workouts
-          const uniqueWorkoutIds = Array.from(workoutsMap.keys()).slice(0, 3);
+          // Get the last 10 unique workouts
+          const uniqueWorkoutIds = Array.from(workoutsMap.keys()).slice(0, 10);
           // Reverse so oldest is first in the array
           uniqueWorkoutIds.reverse().forEach(wId => {
              const sets = workoutsMap.get(wId)!;
