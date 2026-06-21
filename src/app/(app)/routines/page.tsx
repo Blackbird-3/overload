@@ -262,36 +262,44 @@ export default function RoutinesPage() {
                     placeholder="Exercise name"
                     className="flex-1 min-w-[150px] rounded-md border-0 bg-transparent py-1.5 px-2 text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500 sm:text-sm cursor-text"
                   />
-                  <div className="flex items-center gap-2 text-sm cursor-text">
-                    <input
-                      type="number"
-                      value={exercise.targetSets}
-                      onChange={(e) => updateExercise(index, "targetSets", parseInt(e.target.value) || 0)}
-                      className="w-14 rounded-md border-0 bg-transparent py-1.5 px-2 text-center text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-gray-500 mr-2">sets</span>
-                    <input
-                      type="number"
-                      value={exercise.minReps}
-                      onChange={(e) => updateExercise(index, "minReps", parseInt(e.target.value) || 0)}
-                      className="w-14 rounded-md border-0 bg-transparent py-1.5 px-2 text-center text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-gray-500">-</span>
-                    <input
-                      type="number"
-                      value={exercise.maxReps}
-                      onChange={(e) => updateExercise(index, "maxReps", parseInt(e.target.value) || 0)}
-                      className="w-14 rounded-md border-0 bg-transparent py-1.5 px-2 text-center text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-gray-500 ml-1 mr-2">reps</span>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={exercise.weightIncrement || 2.5}
-                      onChange={(e) => updateExercise(index, "weightIncrement", parseFloat(e.target.value) || 0)}
-                      className="w-14 rounded-md border-0 bg-transparent py-1.5 px-2 text-center text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-gray-500 ml-1">kg step</span>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm cursor-text">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        value={exercise.targetSets}
+                        onChange={(e) => updateExercise(index, "targetSets", parseInt(e.target.value) || 0)}
+                        className="w-14 rounded-md border-0 bg-transparent py-1.5 px-2 text-center text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-500">sets</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        value={exercise.minReps}
+                        onChange={(e) => updateExercise(index, "minReps", parseInt(e.target.value) || 0)}
+                        className="w-14 rounded-md border-0 bg-transparent py-1.5 px-2 text-center text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-500">-</span>
+                      <input
+                        type="number"
+                        value={exercise.maxReps}
+                        onChange={(e) => updateExercise(index, "maxReps", parseInt(e.target.value) || 0)}
+                        className="w-14 rounded-md border-0 bg-transparent py-1.5 px-2 text-center text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-500">reps</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={exercise.weightIncrement || 2.5}
+                        onChange={(e) => updateExercise(index, "weightIncrement", parseFloat(e.target.value) || 0)}
+                        className="w-14 rounded-md border-0 bg-transparent py-1.5 px-2 text-center text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-500">kg step</span>
+                    </div>
                   </div>
                   <button
                     onClick={() => removeExercise(index)}
