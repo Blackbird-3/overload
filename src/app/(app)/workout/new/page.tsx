@@ -497,7 +497,7 @@ function ExerciseLoggerCard({
         }
 
         const targetRange: ExerciseTarget = { minReps: exercise.minReps, maxReps: exercise.maxReps };
-        const suggestion = calculateNextTarget(previousSetsHistory, targetRange);
+        const suggestion = calculateNextTarget(previousSetsHistory, targetRange, exercise.weightIncrement || 2.5);
         
         setSuggestion(suggestion);
         setCurrentSet({ 

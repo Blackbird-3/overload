@@ -23,7 +23,7 @@ export interface Suggestion {
 export function calculateNextTarget(
   previousSets: SetPerformance[],
   targetRange: ExerciseTarget,
-  fallbackWeightIncrement: number = 2.5
+  weightIncrement: number = 2.5
 ): Suggestion {
   if (!previousSets || previousSets.length === 0) {
     return {
@@ -36,17 +36,6 @@ export function calculateNextTarget(
   const lastSet = previousSets[previousSets.length - 1];
   const { weight, reps } = lastSet;
   const { minReps, maxReps } = targetRange;
-
-  // Attempt to deduce the user's preferred weight increment from their history
-  let weightIncrement = fallbackWeightIncrement;
-  // Scan backwards to find the last time they successfully increased the weight
-  for (let i = previousSets.length - 1; i > 0; i--) {
-    const diff = previousSets[i].weight - previousSets[i - 1].weight;
-    if (diff > 0) {
-      weightIncrement = diff;
-      break;
-    }
-  }
 
   // Case 1: Reached or exceeded the top of the rep range
   // Action: Increase weight, reset reps to bottom of range

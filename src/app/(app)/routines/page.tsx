@@ -13,6 +13,7 @@ interface Exercise {
   minReps: number;
   maxReps: number;
   targetSets: number;
+  weightIncrement?: number;
 }
 
 interface Routine {
@@ -28,7 +29,7 @@ export default function RoutinesPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
   const [newRoutineName, setNewRoutineName] = useState("");
-  const [newExercises, setNewExercises] = useState<Exercise[]>([{ name: "", minReps: 8, maxReps: 12, targetSets: 3 }]);
+  const [newExercises, setNewExercises] = useState<Exercise[]>([{ name: "", minReps: 8, maxReps: 12, targetSets: 3, weightIncrement: 2.5 }]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -52,7 +53,7 @@ export default function RoutinesPage() {
   };
 
   const addExerciseField = () => {
-    setNewExercises([...newExercises, { name: "", minReps: 8, maxReps: 12, targetSets: 3 }]);
+    setNewExercises([...newExercises, { name: "", minReps: 8, maxReps: 12, targetSets: 3, weightIncrement: 2.5 }]);
   };
 
   const updateExercise = (index: number, field: keyof Exercise, value: string | number) => {
@@ -162,15 +163,16 @@ export default function RoutinesPage() {
     setIsCreating(false);
     setEditingRoutineId(null);
     setNewRoutineName("");
-    setNewExercises([{ name: "", minReps: 8, maxReps: 12, targetSets: 3 }]);
+    setNewExercises([{ name: "", minReps: 8, maxReps: 12, targetSets: 3, weightIncrement: 2.5 }]);
   };
 
   const startEditing = (routine: Routine) => {
     const parsedExercises = routine.exercises.map(e => JSON.parse(e));
-    // Ensure older routines without targetSets get a default of 3
+    // Ensure older routines without targetSets or weightIncrement get a default
     const migratedExercises = parsedExercises.map((e: any) => ({
       ...e,
-      targetSets: e.targetSets || 3
+      targetSets: e.targetSets || 3,
+      weightIncrement: e.weightIncrement || 2.5
     }));
     
     setNewRoutineName(routine.name);
@@ -281,7 +283,15 @@ export default function RoutinesPage() {
                       onChange={(e) => updateExercise(index, "maxReps", parseInt(e.target.value) || 0)}
                       className="w-14 rounded-md border-0 bg-transparent py-1.5 px-2 text-center text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500"
                     />
-                    <span className="text-gray-500 ml-1">reps</span>
+                    <span className="text-gray-500 ml-1 mr-2">reps</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={exercise.weightIncrement || 2.5}
+                      onChange={(e) => updateExercise(index, "weightIncrement", parseFloat(e.target.value) || 0)}
+                      className="w-14 rounded-md border-0 bg-transparent py-1.5 px-2 text-center text-white ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="text-gray-500 ml-1">kg step</span>
                   </div>
                   <button
                     onClick={() => removeExercise(index)}
